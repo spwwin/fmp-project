@@ -1,0 +1,21 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "factoryName": {
+            "value": "temp-adf-1"
+        },
+        "AzureDatabricks1_accessToken": {
+            "value": ""
+        },
+        "AzureDatabricks1_properties_typeProperties_existingClusterId": {
+            "value": "0627-132639-sm903n00"
+        },
+        "containerUri": {
+            "value": ""
+        },
+        "containerSasToken": {
+            "value": ""
+        }
+    }
+}

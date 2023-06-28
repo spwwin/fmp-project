@@ -1,0 +1,422 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "factoryName": {
+            "type": "string",
+            "metadata": "Data Factory name",
+            "defaultValue": "temp-adf-1"
+        },
+        "AzureDatabricks1_accessToken": {
+            "type": "secureString",
+            "metadata": "Secure string for 'accessToken' of 'AzureDatabricks1'"
+        },
+        "AzureDatabricks1_properties_typeProperties_existingClusterId": {
+            "type": "string",
+            "defaultValue": "0627-132639-sm903n00"
+        }
+    },
+    "variables": {
+        "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+    },
+    "resources": [
+        {
+            "name": "[concat(parameters('factoryName'), '/history_dividends_pipeline')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "extraction_raw",
+                        "type": "DatabricksNotebook",
+                        "dependsOn": [
+                            {
+                                "activity": "Set AS_OF_DT",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "notebookPath": "/workspace-01/extraction_raw_stock_dividend",
+                            "baseParameters": {
+                                "STOCK_SYMBOL": {
+                                    "value": "@pipeline().parameters.STOCK_SYMBOL_LIST",
+                                    "type": "Expression"
+                                },
+                                "AS_OF_DT": {
+                                    "value": "@variables('AS_OF_DT')",
+                                    "type": "Expression"
+                                }
+                            }
+                        },
+                        "linkedServiceName": {
+                            "referenceName": "AzureDatabricks1",
+                            "type": "LinkedServiceReference"
+                        }
+                    },
+                    {
+                        "name": "Set AS_OF_DT",
+                        "type": "SetVariable",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "variableName": "AS_OF_DT",
+                            "value": {
+                                "value": "@utcnow('yyyyMMdd')",
+                                "type": "Expression"
+                            }
+                        }
+                    },
+                    {
+                        "name": "transform_raw_to_curated",
+                        "type": "DatabricksNotebook",
+                        "dependsOn": [
+                            {
+                                "activity": "check extraction_raw completion",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "notebookPath": "/workspace-01/transform_raw_to_curated_stock_dividend",
+                            "baseParameters": {
+                                "STOCK_SYMBOL": {
+                                    "value": "@pipeline().parameters.STOCK_SYMBOL_LIST",
+                                    "type": "Expression"
+                                },
+                                "AS_OF_DT": {
+                                    "value": "@variables('AS_OF_DT')",
+                                    "type": "Expression"
+                                }
+                            }
+                        },
+                        "linkedServiceName": {
+                            "referenceName": "AzureDatabricks1",
+                            "type": "LinkedServiceReference"
+                        }
+                    },
+                    {
+                        "name": "check extraction_raw completion",
+                        "type": "IfCondition",
+                        "dependsOn": [
+                            {
+                                "activity": "extraction_raw",
+                                "dependencyConditions": [
+                                    "Completed"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@equals(activity('extraction_raw').output.runOutput.status, 'SUCCEEDED')",
+                                "type": "Expression"
+                            },
+                            "ifFalseActivities": [
+                                {
+                                    "name": "extraction_raw error",
+                                    "type": "Fail",
+                                    "dependsOn": [],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "message": {
+                                            "value": "@activity('extraction_raw').output.runOutput.message",
+                                            "type": "Expression"
+                                        },
+                                        "errorCode": "01"
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "check transform_raw_to_curated completion",
+                        "type": "IfCondition",
+                        "dependsOn": [
+                            {
+                                "activity": "transform_raw_to_curated",
+                                "dependencyConditions": [
+                                    "Completed"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@equals(activity('transform_raw_to_curated').output.runOutput.status, 'SUCCEEDED')",
+                                "type": "Expression"
+                            },
+                            "ifFalseActivities": [
+                                {
+                                    "name": "transform_raw_to_curated error",
+                                    "type": "Fail",
+                                    "dependsOn": [],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "message": {
+                                            "value": "@activity('transform_raw_to_curated').output.runOutput.message",
+                                            "type": "Expression"
+                                        },
+                                        "errorCode": "02"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "policy": {
+                    "elapsedTimeMetric": {},
+                    "cancelAfter": {}
+                },
+                "parameters": {
+                    "STOCK_SYMBOL_LIST": {
+                        "type": "string"
+                    }
+                },
+                "variables": {
+                    "AS_OF_DT": {
+                        "type": "String"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2023-06-28T09:22:10Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/AzureDatabricks1')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/delisted_companies_pipeline')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "extraction_raw",
+                        "type": "DatabricksNotebook",
+                        "dependsOn": [
+                            {
+                                "activity": "Set AS_OF_DT",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "notebookPath": "/workspace-01/extraction_raw_delisted_companies",
+                            "baseParameters": {
+                                "PAGE": {
+                                    "value": "@pipeline().parameters.PAGE_LIST",
+                                    "type": "Expression"
+                                },
+                                "AS_OF_DT": {
+                                    "value": "@variables('AS_OF_DT')",
+                                    "type": "Expression"
+                                }
+                            }
+                        },
+                        "linkedServiceName": {
+                            "referenceName": "AzureDatabricks1",
+                            "type": "LinkedServiceReference"
+                        }
+                    },
+                    {
+                        "name": "Set AS_OF_DT",
+                        "type": "SetVariable",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "variableName": "AS_OF_DT",
+                            "value": {
+                                "value": "@utcnow('yyyyMMdd')",
+                                "type": "Expression"
+                            }
+                        }
+                    },
+                    {
+                        "name": "transform_raw_to_curated",
+                        "type": "DatabricksNotebook",
+                        "dependsOn": [
+                            {
+                                "activity": "check extraction_raw completion",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "notebookPath": "/workspace-01/transform_raw_to_curated_delisted_companies",
+                            "baseParameters": {
+                                "PAGE": {
+                                    "value": "@pipeline().parameters.PAGE_LIST",
+                                    "type": "Expression"
+                                },
+                                "AS_OF_DT": {
+                                    "value": "@variables('AS_OF_DT')",
+                                    "type": "Expression"
+                                }
+                            }
+                        },
+                        "linkedServiceName": {
+                            "referenceName": "AzureDatabricks1",
+                            "type": "LinkedServiceReference"
+                        }
+                    },
+                    {
+                        "name": "check extraction_raw completion",
+                        "type": "IfCondition",
+                        "dependsOn": [
+                            {
+                                "activity": "extraction_raw",
+                                "dependencyConditions": [
+                                    "Completed"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@equals(activity('extraction_raw').output.runOutput.status, 'SUCCEEDED')",
+                                "type": "Expression"
+                            },
+                            "ifFalseActivities": [
+                                {
+                                    "name": "extraction_raw error",
+                                    "type": "Fail",
+                                    "dependsOn": [],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "message": {
+                                            "value": "@activity('extraction_raw').output.runOutput.message",
+                                            "type": "Expression"
+                                        },
+                                        "errorCode": "01"
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "check transform_raw_to_curated completion",
+                        "type": "IfCondition",
+                        "dependsOn": [
+                            {
+                                "activity": "transform_raw_to_curated",
+                                "dependencyConditions": [
+                                    "Completed"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@equals(activity('transform_raw_to_curated').output.runOutput.status, 'SUCCEEDED')",
+                                "type": "Expression"
+                            },
+                            "ifFalseActivities": [
+                                {
+                                    "name": "transform_raw_to_curated error",
+                                    "type": "Fail",
+                                    "dependsOn": [],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "message": {
+                                            "value": "@activity('transform_raw_to_curated').output.runOutput.message",
+                                            "type": "Expression"
+                                        },
+                                        "errorCode": "02"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "policy": {
+                    "elapsedTimeMetric": {},
+                    "cancelAfter": {}
+                },
+                "parameters": {
+                    "PAGE_LIST": {
+                        "type": "string"
+                    }
+                },
+                "variables": {
+                    "AS_OF_DT": {
+                        "type": "String"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2023-06-28T10:22:24Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/AzureDatabricks1')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/AzureDatabricks1')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureDatabricks",
+                "typeProperties": {
+                    "domain": "https://adb-8697989230421379.19.azuredatabricks.net",
+                    "accessToken": {
+                        "type": "SecureString",
+                        "value": "[parameters('AzureDatabricks1_accessToken')]"
+                    },
+                    "existingClusterId": "[parameters('AzureDatabricks1_properties_typeProperties_existingClusterId')]"
+                }
+            },
+            "dependsOn": []
+        }
+    ]
+}
